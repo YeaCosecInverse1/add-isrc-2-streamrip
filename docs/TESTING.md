@@ -1,20 +1,14 @@
 # Testing and verification
 
-These checks help confirm that the copied files are in the right place and can be loaded by Python. They do not guarantee that every source or download URL will work.
+## What is covered by the new batch workflow
 
-## Checks completed for this repository
+For the `rip file` command, the modified code resolves one batch of pending URLs, downloads the media resolved from that batch, then proceeds to the next batch. The default batch size is 10, configurable with `STREAMRIP_TRACK_BATCH_SIZE`.
 
-- Compared the five tracked Python files with their corresponding files on the upstream `dev` branch. The differences are limited to the changes described in [Patch reference](PATCH-REFERENCE.md).
-- The user applied the original patcher to the installed package. It reported that Python syntax checks passed.
-- The installed command returned `rip, version 2.2.0`.
+This specifically addresses the workflow used for a file containing thousands of individual track URLs. Album/playlist batching alone did not cover that input path.
 
-The original patching script is no longer stored in this repository. No live Qobuz download result has been confirmed here.
+## Checks to run after copying
 
-## After copying files
-
-### 1. Check syntax
-
-Run this using the Python minor version associated with the Streamrip environment. For Python 3.13:
+For a Python 3.13 uv installation, define `PKG_DIR` as the installed `streamrip/` directory and run:
 
 ```bash
 python3.13 -m py_compile \
@@ -22,32 +16,32 @@ python3.13 -m py_compile \
   "$PKG_DIR/media/album.py" \
   "$PKG_DIR/media/playlist.py" \
   "$PKG_DIR/media/track.py" \
-  "$PKG_DIR/metadata/track.py"
-```
-
-Define `PKG_DIR` first, pointing to the installed `streamrip/` directory.
-
-### 2. Check the command
-
-```bash
+  "$PKG_DIR/metadata/track.py" \
+  "$PKG_DIR/rip/main.py" \
+  "$PKG_DIR/rip/cli.py"
 rip --version
 ```
 
-If Streamrip fails to start, restore the backup before attempting further changes.
+Then make a short file of a few individual Qobuz track URLs and run:
 
-### 3. Test a small download
+```bash
+rip -q 4 file /path/to/short-test.txt
+```
 
-Start with a small album or playlist and check the log and output. On the machine used during setup, the usual list command was:
+Watch the output to confirm that the command progresses through batches and downloads each batch before resolving the next one.
+
+When that succeeds, run the full list:
 
 ```bash
 rip -q 4 file /run/media/yea/Storage/Qobuz.txt
 ```
 
-On another computer, use the actual path to its list file. For the first test, use a short list rather than a large download queue.
+Use the correct path on the machine you're running.
 
-## What these checks do not prove
+## Known limitations
 
-- A successful syntax check does not prove that the service credentials or API work.
-- The HTTP header limit change only targets the standard-library `http.client` count limit.
-- Batching reduces the age of the resolved download information but cannot prevent every HTTP 410 or signed-URL expiration.
-- A test of one source or album does not validate every provider or playlist type.
+- Syntax checking does not prove that authentication, API access, or every URL is valid.
+- A track error such as `No result matching given argument` may be caused by an unavailable/invalid item; batching does not make it streamable.
+- The header-count patch targets Python's `http.client` parser only.
+- Batching reduces the time signed URLs wait before download; it cannot guarantee that every HTTP 410 or expiration error disappears.
+- Live Qobuz download testing of the new `rip file` batching method has not yet been confirmed by this repository update.
