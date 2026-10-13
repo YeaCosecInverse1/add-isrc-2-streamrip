@@ -1,20 +1,26 @@
 # Streamrip — modified source files
 
-This repository stores the modified Streamrip files so they can be copied into a fresh Streamrip installation. The folder layout mirrors the contents of Streamrip's installed `site-packages/streamrip/` directory.
+This repository stores modified Streamrip source files in a layout that mirrors the installed `streamrip/` package. Copy the files into a matching installation; there is no patching script.
 
-There is **no patching script** here. Install Streamrip, back up its installed package folder, then copy these files into the matching locations. The files currently match the Streamrip **2.2.0** installation and customizations documented here; review compatibility before using them with a different version.
+The files are aligned with the Streamrip **2.2.0** installation reported during setup. Check the installed version before using them with another release.
 
-## Files
+## Files in this repository
 
-| File in this repository | Copy to | Change |
+| Repository file | Copy to | Purpose |
 | --- | --- | --- |
-| `__init__.py` | `streamrip/__init__.py` | Raises Python's `http.client` response-header limit to at least 1,000. |
-| `media/album.py` | `streamrip/media/album.py` | Resolves and downloads album tracks in batches. Default batch size: 10. |
-| `media/playlist.py` | `streamrip/media/playlist.py` | Uses the same configurable batch size for playlists. |
-| `media/track.py` | `streamrip/media/track.py` | Handles `NonStreamableError` when resolving a single track's cover/download information. |
-| `metadata/track.py` | `streamrip/metadata/track.py` | Adds `isrc`, `bit_depth`, and `sample_rate` to filename-template fields. |
+| `__init__.py` | `streamrip/__init__.py` | Raises Python's standard-library HTTP response-header count limit to at least 1,000. |
+| `media/album.py` | `streamrip/media/album.py` | Resolves and downloads album tracks in batches. |
+| `media/playlist.py` | `streamrip/media/playlist.py` | Uses the shared configurable playlist batch size. |
+| `media/track.py` | `streamrip/media/track.py` | Handles a specific `NonStreamableError` path while resolving an individual track. |
+| `metadata/track.py` | `streamrip/metadata/track.py` | Exposes ISRC, bit depth, and sample rate as filename-template fields. |
+| `rip/main.py` | `streamrip/rip/main.py` | Adds batched resolve-and-download processing for large files of URLs. |
+| `rip/cli.py` | `streamrip/rip/cli.py` | Makes `rip file` use batched resolve-and-download processing. |
 
-The repository root represents the inside of the installed `streamrip/` package. **Do not copy the whole repository over the installed package folder.** Copy the five Python files using the paths in the table.
+## Why the `rip/` files matter for large track lists
+
+For a file containing thousands of individual track URLs, the original workflow resolves every pending item before starting the download phase. That can leave early signed download URLs waiting while the rest of the list is resolved.
+
+The modified `rip file` workflow processes a bounded number of items at a time: resolve one batch, download that batch, then move to the next batch. The default is **10** items per batch. This workflow is separate from the album and playlist batching inside `media/album.py` and `media/playlist.py`.
 
 ## Folder layout
 
@@ -28,6 +34,9 @@ The repository root represents the inside of the installed `streamrip/` package.
 │   └── track.py
 ├── metadata/
 │   └── track.py
+├── rip/
+│   ├── cli.py
+│   └── main.py
 └── docs/
     ├── CHANGELOG.md
     ├── FILE-MAP.md
@@ -37,51 +46,54 @@ The repository root represents the inside of the installed `streamrip/` package.
     └── UPSTREAM-FILES.md
 ```
 
-## Install or restore the files
+The repository root represents the *inside* of the installed `streamrip/` package. Do not copy the whole repository over the installed package. Copy the seven Python files into the matching destinations listed above.
 
-1. Install Streamrip normally and check its version with `rip --version`.
-2. Back up the installed `streamrip/` package directory.
-3. Copy the five files into their matching paths. The full instructions and commands are in [Installation](docs/INSTALLATION.md).
-4. Check that `rip --version` still works, then test a small download.
+## Install / update on a new PC
 
-For the uv installation shown in Dolphin, the package directory was:
+1. Install Streamrip normally.
+2. Check `rip --version`.
+3. Back up the installed `streamrip/` directory.
+4. Copy the seven source files into their matching paths.
+5. Run the syntax and startup checks in [Installation](docs/INSTALLATION.md), then test a small list before running the full list.
+
+For the uv installation shown during setup, the package path was:
 
 ```text
 ~/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/
 ```
 
-The Python version or installation location may be different on another machine.
+The Python version and installation path may differ on another computer.
 
 ## Batch size
 
-Album and playlist batch processing defaults to 10. To use 25 for one command, set the variable for that run:
+The default is 10. To use 25 for one command:
 
 ```bash
 STREAMRIP_TRACK_BATCH_SIZE=25 rip -q 4 file /path/to/Qobuz.txt
 ```
 
-Your normal command needs no extra setting when using the default:
+The usual command needs no extra setting:
 
 ```bash
 rip -q 4 file /path/to/Qobuz.txt
 ```
 
-Replace `/path/to/Qobuz.txt` with the actual path to your list file.
+Replace the example path with the actual location of the URL list.
 
-Batching limits how many track workflows are active at once and reduces the time between fetching download information and using it. It cannot guarantee that a signed URL will not expire.
+Batching reduces how long a resolved download URL waits before its download starts. It cannot guarantee that HTTP 410 responses or signed-URL expiration will never occur.
 
-## Original source and change notes
+## Documentation
 
-- [Original upstream file links](docs/UPSTREAM-FILES.md)
+- [Installation and rollback](docs/INSTALLATION.md)
+- [File map](docs/FILE-MAP.md)
 - [Original behavior vs. modified behavior](docs/PATCH-REFERENCE.md)
-- [Installed/repository file map](docs/FILE-MAP.md)
-- [Testing notes](docs/TESTING.md)
+- [Original upstream files](docs/UPSTREAM-FILES.md)
+- [Testing and remaining limitations](docs/TESTING.md)
 - [Change log](docs/CHANGELOG.md)
 
-The original upstream links point to the `dev` branch and may change over time. They are references, not exact backups of the files on your computer. Keep your local backups when replacing files.
+## Important limitations
 
-## Known limits
-
-- The header change targets Python's standard-library `http.client` header-count error. It does not solve authentication problems, unavailable tracks, or every HTTP error.
-- Batch processing does not guarantee recovery from HTTP 410 or expired download URLs.
-- The code has not been confirmed against every Streamrip release. Review [Patch reference](docs/PATCH-REFERENCE.md) and [Testing](docs/TESTING.md) before applying it to a different version.
+- The header-count setting targets Python's `http.client` parser; it does not change every HTTP library's limit.
+- The non-streamable-track handling does not make restricted tracks streamable.
+- Batch processing reduces URL age, but cannot guarantee recovery from every API error or expired URL.
+- The upstream links point to the moving `dev` branch and are references, not exact backups of the files on your machine.
