@@ -11,19 +11,25 @@ The patcher edits the installed package in place. It does not reinstall Streamri
 
 ## 1. Identify the installed package directory
 
-For a uv tool installation, the directory commonly looks like:
+Your screenshot shows the Streamrip package directory inside Dolphin at:
+
+```text
+/home/yea/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/
+```
+
+The equivalent home-relative path is:
 
 ```text
 ~/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/
 ```
 
-Use the actual Python version on the machine. The directory passed to `--package-dir` must contain `__init__.py`, and its `media/` subdirectory must contain `album.py` and `playlist.py`.
+Use the actual Python version and home directory on the machine. The directory passed to `--package-dir` must contain `__init__.py`, and its `media/` subdirectory must contain `album.py` and `playlist.py`. Pass the `streamrip/` directory itself, not the parent `site-packages/` directory.
 
-If Streamrip is installed elsewhere, locate the package directory and pass that path explicitly. Do not point the option at the parent `site-packages` directory.
+For the visible folder layout and links to the original upstream source files, see [File map](FILE-MAP.md) and [Original upstream files](UPSTREAM-FILES.md).
 
 ## 2. Review before applying
 
-From the repository root, run a dry run:
+From the root of this patch repository, run a dry run:
 
 ```bash
 python3 scripts/patch_streamrip.py \
