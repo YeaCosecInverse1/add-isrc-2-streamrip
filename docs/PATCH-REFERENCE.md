@@ -1,20 +1,24 @@
 # Patch reference
 
-This document records the installed-file changes, the behavior before and after each change, and the intended boundaries of the patch set.
+This document records the installed-file changes, the behavior before and after each change, and the intended boundaries of the patch set. Each target entry includes a link to the corresponding original upstream file on the `dev` branch of [nathom/streamrip](https://github.com/nathom/streamrip). Upstream links are reference copies, not a guarantee that the source exactly matches the installed version.
 
 ## Summary
 
-| Installed file | Original behavior | Modified behavior | Reason |
-| --- | --- | --- | --- |
-| `streamrip/__init__.py` | Python's standard-library `http.client` uses its default response-header count limit (100). | Sets `http.client._MAXHEADERS` to at least 1,000 during Streamrip package initialization. | Avoids aborting responses that contain more than 100 headers. |
-| `streamrip/media/album.py` | Album track tasks are all passed to one `asyncio.gather()`, so every track can begin resolving at once. | Resolves and downloads a bounded group, waits for that group to finish, then starts the next group. | Reduces the interval between obtaining a track's download information and using it. |
-| `streamrip/media/playlist.py` | Playlist processing uses a fixed chunk size of 20. | Uses `STREAMRIP_TRACK_BATCH_SIZE`, defaulting to 10. | Gives albums and playlists a consistent, configurable batch size. |
+| Installed file | Original upstream file | Original behavior | Modified behavior | Reason |
+| --- | --- | --- | --- | --- |
+| `streamrip/__init__.py` | [View original](https://github.com/nathom/streamrip/blob/dev/streamrip/__init__.py) | Python's standard-library `http.client` uses its default response-header count limit (100). | Sets `http.client._MAXHEADERS` to at least 1,000 during package initialization. | Avoids aborting responses that contain more than 100 headers. |
+| `streamrip/media/album.py` | [View original](https://github.com/nathom/streamrip/blob/dev/streamrip/media/album.py) | Album track tasks are all passed to one `asyncio.gather()`, so every track can begin resolving at once. | Resolves and downloads a bounded group, waits for that group to finish, then starts the next group. | Reduces the interval between obtaining a track's download information and using it. |
+| `streamrip/media/playlist.py` | [View original](https://github.com/nathom/streamrip/blob/dev/streamrip/media/playlist.py) | Playlist processing uses a fixed chunk size of 20. | Uses `STREAMRIP_TRACK_BATCH_SIZE`, defaulting to 10. | Gives albums and playlists a consistent, configurable batch size. |
+
+For the complete list of original source links matching the screenshot, see [UPSTREAM-FILES.md](UPSTREAM-FILES.md).
 
 ## 1. Header limit
 
-### Location
+### Location and original
 
-`streamrip/__init__.py`
+Installed target: `streamrip/__init__.py`
+
+Original upstream file: [streamrip/__init__.py](https://github.com/nathom/streamrip/blob/dev/streamrip/__init__.py)
 
 ### Added behavior
 
@@ -42,9 +46,11 @@ This is a narrow workaround for the response-header count. It does not fix a `41
 
 ## 2. Album batching
 
-### Location
+### Location and original
 
-`streamrip/media/album.py`
+Installed target: `streamrip/media/album.py`
+
+Original upstream file: [streamrip/media/album.py](https://github.com/nathom/streamrip/blob/dev/streamrip/media/album.py)
 
 ### Original behavior
 
@@ -62,9 +68,11 @@ The existing per-track exception logging is retained. A failed track does not in
 
 ## 3. Playlist batching
 
-### Location
+### Location and original
 
-`streamrip/media/playlist.py`
+Installed target: `streamrip/media/playlist.py`
+
+Original upstream file: [streamrip/media/playlist.py](https://github.com/nathom/streamrip/blob/dev/streamrip/media/playlist.py)
 
 ### Original behavior
 
@@ -78,8 +86,8 @@ The patch changes the fixed size to the same `STREAMRIP_TRACK_BATCH_SIZE` enviro
 
 The patcher does not write to these files:
 
-- `streamrip/metadata/track.py`: the local ISRC extraction and filename-template changes, including `isrc`, `bit_depth`, and `sample_rate`.
-- `streamrip/media/track.py`: the local `NonStreamableError` handling for track resolution.
+- `streamrip/metadata/track.py`: local ISRC extraction and filename-template changes, including `isrc`, `bit_depth`, and `sample_rate`. [Original upstream file](https://github.com/nathom/streamrip/blob/dev/streamrip/metadata/track.py)
+- `streamrip/media/track.py`: local `NonStreamableError` handling for track resolution. [Original upstream file](https://github.com/nathom/streamrip/blob/dev/streamrip/media/track.py)
 
 This separation is deliberate. The new changes do not require replacing either customized track file.
 
