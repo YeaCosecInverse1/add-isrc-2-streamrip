@@ -25,7 +25,7 @@ Use the same Python environment that owns the `rip` command. For a uv tool insta
 ~/.local/share/uv/tools/streamrip/lib/pythonX.Y/site-packages/streamrip/
 ```
 
-Review [Installation and usage](docs/INSTALLATION.md), then run:
+Your screenshot shows the `streamrip/` package directory inside `site-packages`, not the root of this patch repository. Review [Installation and usage](docs/INSTALLATION.md), then run:
 
 ```bash
 python3 scripts/patch_streamrip.py --package-dir "$HOME/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip"
@@ -39,8 +39,9 @@ To select a batch size, set `STREAMRIP_TRACK_BATCH_SIZE` to `10` or `25` in the 
 
 - [Installation, application, and rollback](docs/INSTALLATION.md)
 - [Patch reference: original behavior and modified behavior](docs/PATCH-REFERENCE.md)
+- [Original upstream file links and installed package layout](docs/UPSTREAM-FILES.md)
 - [Validation and test plan](docs/TESTING.md)
-- [Repository file map](docs/FILE-MAP.md)
+- [Repository and installed-package file maps](docs/FILE-MAP.md)
 - [Change log](docs/CHANGELOG.md)
 
 ## Scope and limitations
@@ -53,5 +54,6 @@ The patch has not been validated against every Streamrip release or every source
 
 ## Upstream references
 
-- [Streamrip](https://github.com/nathom/streamrip)
+- [Streamrip source repository](https://github.com/nathom/streamrip)
 - [Upstream PR #1033: increase `http.client._MAXHEADERS`](https://github.com/nathom/streamrip/pull/1033)
+- [Direct links to original source files](docs/UPSTREAM-FILES.md)
