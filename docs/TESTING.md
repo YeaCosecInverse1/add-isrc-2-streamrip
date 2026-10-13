@@ -44,4 +44,4 @@ Use the correct path on the machine you're running.
 - A track error such as `No result matching given argument` may be caused by an unavailable/invalid item; batching does not make it streamable.
 - The header-count patch targets Python's `http.client` parser only.
 - Batching reduces the time signed URLs wait before download; it cannot guarantee that every HTTP 410 or expiration error disappears.
-- Live Qobuz download testing of the new `rip file` batching method has not yet been confirmed by this repository update.
+- The repository owner has reported that the updated `rip file` workflow works in their installed setup. This is user-reported manual verification; it has not been independently reproduced here, and automated regression tests have not been run as part of this repository update.
