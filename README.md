@@ -1,59 +1,87 @@
-# Streamrip local patches
+# Streamrip — modified source files
 
-A small, documented patch set for a local Streamrip installation. It preserves the project's existing customizations for ISRC-based filenames and non-streamable-track handling while adding two narrowly scoped fixes:
+This repository stores the modified Streamrip files so they can be copied into a fresh Streamrip installation. The folder layout mirrors the contents of Streamrip's installed `site-packages/streamrip/` directory.
 
-- Raise Python's standard-library HTTP response-header limit to 1,000.
-- Process album and playlist tracks in sequential batches, resolving and downloading each batch before starting the next.
+There is **no patching script** here. Install Streamrip, back up its installed package folder, then copy these files into the matching locations. The files currently match the Streamrip **2.2.0** installation and customizations documented here; review compatibility before using them with a different version.
 
-These changes are intended for a local installation, not as a replacement for the upstream Streamrip package. Review the patch reference and backup/rollback instructions before applying them.
+## Files
 
-## What this repository changes
+| File in this repository | Copy to | Change |
+| --- | --- | --- |
+| `__init__.py` | `streamrip/__init__.py` | Raises Python's `http.client` response-header limit to at least 1,000. |
+| `media/album.py` | `streamrip/media/album.py` | Resolves and downloads album tracks in batches. Default batch size: 10. |
+| `media/playlist.py` | `streamrip/media/playlist.py` | Uses the same configurable batch size for playlists. |
+| `media/track.py` | `streamrip/media/track.py` | Handles `NonStreamableError` when resolving a single track's cover/download information. |
+| `metadata/track.py` | `streamrip/metadata/track.py` | Adds `isrc`, `bit_depth`, and `sample_rate` to filename-template fields. |
 
-| Installed file | Change |
-| --- | --- |
-| `streamrip/__init__.py` | Sets `http.client._MAXHEADERS` to at least 1,000 during package initialization. |
-| `streamrip/media/album.py` | Processes album tracks in bounded batches instead of resolving the entire album concurrently. |
-| `streamrip/media/playlist.py` | Makes the existing playlist batch size configurable and uses the same setting. |
+The repository root represents the inside of the installed `streamrip/` package. **Do not copy the whole repository over the installed package folder.** Copy the five Python files using the paths in the table.
 
-The patcher does **not** replace `streamrip/metadata/track.py` or `streamrip/media/track.py`. Your ISRC/filename changes and `NonStreamableError` handling remain separate and untouched.
-
-## Quick start
-
-Use the same Python environment that owns the `rip` command. For a uv tool installation, the package is commonly located under:
+## Folder layout
 
 ```text
-~/.local/share/uv/tools/streamrip/lib/pythonX.Y/site-packages/streamrip/
+.
+├── README.md
+├── __init__.py
+├── media/
+│   ├── album.py
+│   ├── playlist.py
+│   └── track.py
+├── metadata/
+│   └── track.py
+└── docs/
+    ├── CHANGELOG.md
+    ├── FILE-MAP.md
+    ├── INSTALLATION.md
+    ├── PATCH-REFERENCE.md
+    ├── TESTING.md
+    └── UPSTREAM-FILES.md
 ```
 
-Your screenshot shows the `streamrip/` package directory inside `site-packages`, not the root of this patch repository. Review [Installation and usage](docs/INSTALLATION.md), then run:
+## Install or restore the files
+
+1. Install Streamrip normally and check its version with `rip --version`.
+2. Back up the installed `streamrip/` package directory.
+3. Copy the five files into their matching paths. The full instructions and commands are in [Installation](docs/INSTALLATION.md).
+4. Check that `rip --version` still works, then test a small download.
+
+For the uv installation shown in Dolphin, the package directory was:
+
+```text
+~/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/
+```
+
+The Python version or installation location may be different on another machine.
+
+## Batch size
+
+Album and playlist batch processing defaults to 10. To use 25 for one command, set the variable for that run:
 
 ```bash
-python3 scripts/patch_streamrip.py --package-dir "$HOME/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip"
+STREAMRIP_TRACK_BATCH_SIZE=25 rip -q 4 file /path/to/Qobuz.txt
 ```
 
-Change `python3.13` if your installed environment uses another Python version. The patcher creates timestamped backups before writing. It checks for expected source patterns and stops rather than guessing when the installed code differs.
+Your normal command needs no extra setting when using the default:
 
-To select a batch size, set `STREAMRIP_TRACK_BATCH_SIZE` to `10` or `25` in the environment used to run `rip`. The default is `10`.
+```bash
+rip -q 4 file /path/to/Qobuz.txt
+```
 
-## Documentation
+Replace `/path/to/Qobuz.txt` with the actual path to your list file.
 
-- [Installation, application, and rollback](docs/INSTALLATION.md)
-- [Patch reference: original behavior and modified behavior](docs/PATCH-REFERENCE.md)
-- [Original upstream file links and installed package layout](docs/UPSTREAM-FILES.md)
-- [Validation and test plan](docs/TESTING.md)
-- [Repository and installed-package file maps](docs/FILE-MAP.md)
+Batching limits how many track workflows are active at once and reduces the time between fetching download information and using it. It cannot guarantee that a signed URL will not expire.
+
+## Original source and change notes
+
+- [Original upstream file links](docs/UPSTREAM-FILES.md)
+- [Original behavior vs. modified behavior](docs/PATCH-REFERENCE.md)
+- [Installed/repository file map](docs/FILE-MAP.md)
+- [Testing notes](docs/TESTING.md)
 - [Change log](docs/CHANGELOG.md)
 
-## Scope and limitations
+The original upstream links point to the `dev` branch and may change over time. They are references, not exact backups of the files on your computer. Keep your local backups when replacing files.
 
-The header-limit change addresses the specific Python error `HTTPException('got more than 100 headers')`. It does not repair authentication, network failures, unavailable tracks, or HTTP 410 responses by itself.
+## Known limits
 
-Batching reduces the time between resolving a track's download information and starting its download. It does not guarantee that a signed URL will never expire. Batch jobs still run concurrently within each batch; the next batch starts only after the current batch's track tasks finish.
-
-The patch has not been validated against every Streamrip release or every source. Run the checks in [Testing](docs/TESTING.md) and perform a small real-world download before relying on it for a large library.
-
-## Upstream references
-
-- [Streamrip source repository](https://github.com/nathom/streamrip)
-- [Upstream PR #1033: increase `http.client._MAXHEADERS`](https://github.com/nathom/streamrip/pull/1033)
-- [Direct links to original source files](docs/UPSTREAM-FILES.md)
+- The header change targets Python's standard-library `http.client` header-count error. It does not solve authentication problems, unavailable tracks, or every HTTP error.
+- Batch processing does not guarantee recovery from HTTP 410 or expired download URLs.
+- The code has not been confirmed against every Streamrip release. Review [Patch reference](docs/PATCH-REFERENCE.md) and [Testing](docs/TESTING.md) before applying it to a different version.
