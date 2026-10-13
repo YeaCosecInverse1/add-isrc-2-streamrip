@@ -18,4 +18,4 @@ The repository stores seven ready-to-copy modified Streamrip source files in a l
 
 - The files are aligned with the Streamrip 2.2.0 installation reported during setup; other versions may require review.
 - Batching reduces the age of signed download URLs but cannot guarantee that they will never expire.
-- Live Qobuz testing of the new large-file workflow has not been confirmed.
+- The repository owner has reported that the new large-file `rip file` workflow works in their installed setup; this is user-reported manual verification, not an independently reproduced test.
