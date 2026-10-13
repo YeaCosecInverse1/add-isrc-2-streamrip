@@ -1,5 +1,8 @@
 # ADD ISRC
 
+### Location: "/home/yea/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/metadata/"
+### File: "track.py"
+
 ## 1. Where the ISRC comes from
 
 In your uploaded file, lines 38–41 contain this code:&#x20;
@@ -71,6 +74,9 @@ ___
 ___
 
 # Handle non-streamable tracks without crashing the entire download process
+
+### Location : "/home/yea/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/media/"
+### File: "track.py"
 
 1\. Adds error handling
 
