@@ -1,23 +1,21 @@
 # Change log
 
-## Current repository layout
+## Current source set
 
-The repository now stores the five modified Streamrip source files in paths that mirror the contents of the installed `streamrip/` package. The Python patching script and script-oriented installation process are not part of this repository.
+The repository stores seven ready-to-copy modified Streamrip source files in a layout mirroring the installed package. It does not include a file-patching script.
 
-## Changes preserved in the source files
+## Changes
 
-- `__init__.py`: raises Python's `http.client` header-count limit to at least 1,000.
-- `media/album.py`: processes album track tasks in sequential batches.
-- `media/playlist.py`: uses `STREAMRIP_TRACK_BATCH_SIZE`, default 10, for playlist batches.
-- `media/track.py`: catches `NonStreamableError` during the single-track cover/downloadable operation.
-- `metadata/track.py`: makes ISRC, bit depth, and sample rate available to filename templates and documents the supported fields.
-
-## Documentation
-
-Added installation, file-map, patch-reference, upstream-source, and testing notes describing the intended manual-copy workflow.
+- `__init__.py`: raise the standard-library `http.client` response-header count limit to at least 1,000.
+- `media/album.py`: resolve and download album tracks in sequential batches.
+- `media/playlist.py`: use the shared configurable batch size, default 10.
+- `media/track.py`: handle a specific `NonStreamableError` path during single-track resolution.
+- `metadata/track.py`: expose ISRC, bit depth, and sample rate as filename-template fields.
+- `rip/main.py`: add a batch pipeline that resolves and downloads pending items batch by batch.
+- `rip/cli.py`: route `rip file` through that pipeline, so a file containing 7,500 individual URLs no longer resolves every track before any download begins.
 
 ## Limitations
 
-- The files are aligned with the Streamrip 2.2.0 installation reported during setup; compatibility with other versions is not guaranteed.
-- Batching does not guarantee that signed URLs will remain valid.
-- A syntax check is not the same as a successful live download.
+- The files are aligned with the Streamrip 2.2.0 installation reported during setup; other versions may require review.
+- Batching reduces the age of signed download URLs but cannot guarantee that they will never expire.
+- Live Qobuz testing of the new large-file workflow has not been confirmed.
