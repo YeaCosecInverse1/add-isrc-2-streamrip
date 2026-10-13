@@ -1,255 +1,274 @@
-from __future__ import annotations
-
+import asyncio
 import logging
+import os
 from dataclasses import dataclass
-from typing import Optional
 
-from .album import AlbumMetadata
-from .util import safe_get, typed
+from .. import converter
+from ..client import Client, Downloadable
+from ..config import Config
+from ..db import Database
+from ..exceptions import NonStreamableError
+from ..filepath_utils import clean_filename
+from ..metadata import AlbumMetadata, Covers, TrackMetadata, tag_file
+from ..progress import add_title, get_progress_callback, remove_title
+from .artwork import download_artwork
+from .media import Media, Pending
+from .semaphore import global_download_semaphore
 
 logger = logging.getLogger("streamrip")
 
 
 @dataclass(slots=True)
-class TrackInfo:
-    id: str
-    quality: int
+class Track(Media):
+    meta: TrackMetadata
+    downloadable: Downloadable
+    config: Config
+    folder: str
+    # Is None if a cover doesn't exist for the track
+    cover_path: str | None
+    db: Database
+    # change?
+    download_path: str = ""
+    is_single: bool = False
 
-    bit_depth: Optional[int] = None
-    explicit: bool = False
-    sampling_rate: Optional[int | float] = None
-    work: Optional[str] = None
+    async def preprocess(self):
+        self._set_download_path()
+        os.makedirs(self.folder, exist_ok=True)
+        if self.is_single:
+            add_title(self.meta.title)
+
+    async def download(self):
+        # TODO: progress bar description
+        async with global_download_semaphore(self.config.session.downloads):
+            with get_progress_callback(
+                self.config.session.cli.progress_bars,
+                await self.downloadable.size(),
+                f"Track {self.meta.tracknumber}",
+            ) as callback:
+                try:
+                    await self.downloadable.download(self.download_path, callback)
+                    retry = False
+                except Exception as e:
+                    logger.error(
+                        f"Error downloading track '{self.meta.title}', retrying: {e}"
+                    )
+                    retry = True
+
+            if not retry:
+                return
+
+            with get_progress_callback(
+                self.config.session.cli.progress_bars,
+                await self.downloadable.size(),
+                f"Track {self.meta.tracknumber} (retry)",
+            ) as callback:
+                try:
+                    await self.downloadable.download(self.download_path, callback)
+                except Exception as e:
+                    logger.error(
+                        f"Persistent error downloading track '{self.meta.title}', skipping: {e}"
+                    )
+                    self.db.set_failed(
+                        self.downloadable.source, "track", self.meta.info.id
+                    )
+
+    async def postprocess(self):
+        if self.is_single:
+            remove_title(self.meta.title)
+
+        await tag_file(self.download_path, self.meta, self.cover_path)
+        if self.config.session.conversion.enabled:
+            await self._convert()
+
+        self.db.set_downloaded(self.meta.info.id)
+
+    async def _convert(self):
+        c = self.config.session.conversion
+        engine_class = converter.get(c.codec)
+        engine = engine_class(
+            filename=self.download_path,
+            sampling_rate=c.sampling_rate,
+            bit_depth=c.bit_depth,
+            remove_source=True,  # always going to delete the old file
+        )
+        await engine.convert()
+        self.download_path = engine.final_fn  # because the extension changed
+
+    def _set_download_path(self):
+        c = self.config.session.filepaths
+        formatter = c.track_format
+        track_path = clean_filename(
+            self.meta.format_track_path(formatter),
+            restrict=c.restrict_characters,
+        )
+        if c.truncate_to > 0 and len(track_path) > c.truncate_to:
+            track_path = track_path[: c.truncate_to]
+
+        self.download_path = os.path.join(
+            self.folder,
+            f"{track_path}.{self.downloadable.extension}",
+        )
 
 
 @dataclass(slots=True)
-class TrackMetadata:
-    info: TrackInfo
-
-    title: str
+class PendingTrack(Pending):
+    id: str
     album: AlbumMetadata
-    artist: str
-    tracknumber: int
-    discnumber: int
-    composer: str | None
-    isrc: str | None = None
-    lyrics: str | None = ""
+    client: Client
+    config: Config
+    folder: str
+    db: Database
+    # cover_path is None <==> Artwork for this track doesn't exist in API
+    cover_path: str | None
 
-    @classmethod
-    def from_qobuz(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata | None:
-        title = typed(resp["title"].strip(), str)
-        isrc = typed(resp["isrc"], str)
-        streamable = typed(resp.get("streamable", False), bool)
-
-        if not streamable:
+    async def resolve(self) -> Track | None:
+        if self.db.downloaded(self.id):
+            logger.info(
+                f"Skipping track {self.id}. Marked as downloaded in the database.",
+            )
             return None
 
-        version = typed(resp.get("version"), str | None)
-        work = typed(resp.get("work"), str | None)
-        if version is not None and version not in title:
-            title = f"{title} ({version})"
-        if work is not None and work not in title:
-            title = f"{work}: {title}"
+        source = self.client.source
+        try:
+            resp = await self.client.get_metadata(self.id, "track")
+        except NonStreamableError as e:
+            logger.error(f"Track {self.id} not available for stream on {source}: {e}")
+            return None
 
-        composer = typed(resp.get("composer", {}).get("name"), str | None)
-        tracknumber = typed(resp.get("track_number", 1), int)
-        discnumber = typed(resp.get("media_number", 1), int)
-        artist = typed(
-            safe_get(
-                resp,
-                "performer",
-                "name",
-            ),
-            str,
-        )
-        track_id = str(resp["id"])
-        bit_depth = typed(resp.get("maximum_bit_depth"), int | None)
-        sampling_rate = typed(resp.get("maximum_sampling_rate"), int | float | None)
-        # Is the info included?
-        explicit = False
+        try:
+            meta = TrackMetadata.from_resp(self.album, source, resp)
+        except Exception as e:
+            logger.error(f"Error building track metadata for {self.id}: {e}")
+            return None
 
-        info = TrackInfo(
-            id=track_id,
-            quality=album.info.quality,
-            bit_depth=bit_depth,
-            explicit=explicit,
-            sampling_rate=sampling_rate,
-            work=work,
-        )
-        return cls(
-            info=info,
-            title=title,
-            album=album,
-            artist=artist,
-            tracknumber=tracknumber,
-            discnumber=discnumber,
-            composer=composer,
-            isrc=isrc,
-        )
+        if meta is None:
+            logger.error(f"Track {self.id} not available for stream on {source}")
+            self.db.set_failed(source, "track", self.id)
+            return None
 
-    @classmethod
-    def from_deezer(cls, album: AlbumMetadata, resp) -> TrackMetadata | None:
-        track_id = str(resp["id"])
-        isrc = typed(resp["isrc"], str)
-        bit_depth = 16
-        sampling_rate = 44.1
-        explicit = typed(resp["explicit_lyrics"], bool)
-        work = None
-        title = typed(resp["title"], str)
-        artist = typed(resp["artist"]["name"], str)
-        tracknumber = typed(resp["track_position"], int)
-        discnumber = typed(resp["disk_number"], int)
-        composer = None
-        info = TrackInfo(
-            id=track_id,
-            quality=album.info.quality,
-            bit_depth=bit_depth,
-            explicit=explicit,
-            sampling_rate=sampling_rate,
-            work=work,
-        )
-        return cls(
-            info=info,
-            title=title,
-            album=album,
-            artist=artist,
-            tracknumber=tracknumber,
-            discnumber=discnumber,
-            composer=composer,
-            isrc=isrc,
-        )
+        quality = self.config.session.get_source(source).quality
+        try:
+            downloadable = await self.client.get_downloadable(self.id, quality)
+        except NonStreamableError as e:
+            logger.error(
+                f"Error getting downloadable data for track {meta.tracknumber} [{self.id}]: {e}"
+            )
+            return None
 
-    @classmethod
-    def from_soundcloud(cls, album: AlbumMetadata, resp: dict) -> TrackMetadata:
-        track = resp
-        track_id = track["id"]
-        isrc = typed(safe_get(track, "publisher_metadata", "isrc"), str | None)
-        bit_depth, sampling_rate = None, None
-        explicit = typed(
-            safe_get(track, "publisher_metadata", "explicit", default=False),
-            bool,
-        )
-
-        title = typed(track["title"].strip(), str)
-        artist = typed(track["user"]["username"], str)
-        tracknumber = 1
-
-        info = TrackInfo(
-            id=track_id,
-            quality=album.info.quality,
-            bit_depth=bit_depth,
-            explicit=explicit,
-            sampling_rate=sampling_rate,
-            work=None,
-        )
-        return cls(
-            info=info,
-            title=title,
-            album=album,
-            artist=artist,
-            tracknumber=tracknumber,
-            discnumber=0,
-            composer=None,
-            isrc=isrc,
-        )
-
-    @classmethod
-    def from_tidal(cls, album: AlbumMetadata, track) -> TrackMetadata:
-        title = typed(track["title"], str).strip()
-        item_id = str(track["id"])
-        isrc = typed(track["isrc"], str)
-        version = track.get("version")
-        explicit = track.get("explicit", False)
-        if version:
-            title = f"{title} ({version})"
-
-        tracknumber = typed(track.get("trackNumber", 1), int)
-        discnumber = typed(track.get("volumeNumber", 1), int)
-
-        artists = track.get("artists")
-        if len(artists) > 0:
-            artist = ", ".join(a["name"] for a in artists)
+        downloads_config = self.config.session.downloads
+        if downloads_config.disc_subdirectories and self.album.disctotal > 1:
+            folder = os.path.join(self.folder, f"Disc {meta.discnumber}")
         else:
-            artist = track["artist"]["name"]
+            folder = self.folder
 
-        lyrics = track.get("lyrics", "")
-
-        quality_map: dict[str, int] = {
-            "LOW": 0,
-            "HIGH": 1,
-            "LOSSLESS": 2,
-            "HI_RES": 3,
-        }
-
-        tidal_quality = track.get("audioQuality")
-        if tidal_quality is not None:
-            quality = quality_map[tidal_quality]
-        else:
-            quality = 0
-
-        if quality >= 2:
-            sampling_rate = 44100
-            if quality == 3:
-                bit_depth = 24
-            else:
-                bit_depth = 16
-        else:
-            sampling_rate = bit_depth = None
-
-        info = TrackInfo(
-            id=item_id,
-            quality=quality,
-            bit_depth=bit_depth,
-            explicit=explicit,
-            sampling_rate=sampling_rate,
-            work=None,
-        )
-        return cls(
-            info=info,
-            title=title,
-            album=album,
-            artist=artist,
-            tracknumber=tracknumber,
-            discnumber=discnumber,
-            composer=None,
-            isrc=isrc,
-            lyrics=lyrics,
+        return Track(
+            meta,
+            downloadable,
+            self.config,
+            folder,
+            self.cover_path,
+            self.db,
         )
 
-    @classmethod
-    def from_resp(cls, album: AlbumMetadata, source, resp) -> TrackMetadata | None:
-        if source == "qobuz":
-            return cls.from_qobuz(album, resp)
-        if source == "tidal":
-            return cls.from_tidal(album, resp)
-        if source == "soundcloud":
-            return cls.from_soundcloud(album, resp)
-        if source == "deezer":
-            return cls.from_deezer(album, resp)
-        raise Exception
 
-    def format_track_path(self, format_string: str) -> str:
-        # Available keys: "tracknumber", "artist", "albumartist", "composer",
-        # "title", "explicit", "albumcomposer", "isrc", "bit_depth", "sample_rate"
-        none_text = "Unknown"
+@dataclass(slots=True)
+class PendingSingle(Pending):
+    """Whereas PendingTrack is used in the context of an album, where the album metadata
+    and cover have been resolved, PendingSingle is used when a single track is downloaded.
 
-        if self.info.sampling_rate is None:
-            sample_rate = none_text
-        elif self.info.sampling_rate >= 1000:
-            sample_rate = f"{self.info.sampling_rate / 1000:g}"
+    This resolves the Album metadata and downloads the cover to pass to the Track class.
+    """
+
+    id: str
+    client: Client
+    config: Config
+    db: Database
+
+    async def resolve(self) -> Track | None:
+        if self.db.downloaded(self.id):
+            logger.info(
+                f"Skipping track {self.id}. Marked as downloaded in the database.",
+            )
+            return None
+
+        try:
+            resp = await self.client.get_metadata(self.id, "track")
+        except NonStreamableError as e:
+            logger.error(f"Error fetching track {self.id}: {e}")
+            return None
+        # Patch for soundcloud
+        try:
+            album = AlbumMetadata.from_track_resp(resp, self.client.source)
+        except Exception as e:
+            logger.error(f"Error building album metadata for track {id=}: {e}")
+            return None
+
+        if album is None:
+            self.db.set_failed(self.client.source, "track", self.id)
+            logger.error(
+                f"Cannot stream track (am) ({self.id}) on {self.client.source}",
+            )
+            return None
+
+        try:
+            meta = TrackMetadata.from_resp(album, self.client.source, resp)
+        except Exception as e:
+            logger.error(f"Error building track metadata for track {id=}: {e}")
+            return None
+
+        if meta is None:
+            self.db.set_failed(self.client.source, "track", self.id)
+            logger.error(
+                f"Cannot stream track (tm) ({self.id}) on {self.client.source}",
+            )
+            return None
+
+        config = self.config.session
+        quality = getattr(config, self.client.source).quality
+        assert isinstance(quality, int)
+        parent = config.downloads.folder
+        if config.filepaths.add_singles_to_folder:
+            folder = self._format_folder(album)
         else:
-            sample_rate = f"{self.info.sampling_rate:g}"
+            folder = parent
 
-        info = {
-            "id": self.info.id,
-            "title": self.title,
-            "tracknumber": self.tracknumber,
-            "artist": self.artist,
-            "albumartist": self.album.albumartist,
-            "albumcomposer": self.album.albumcomposer or none_text,
-            "composer": self.composer or none_text,
-            "explicit": " (Explicit)" if self.info.explicit else "",
-            "isrc": self.isrc or none_text,
-            "bit_depth": self.info.bit_depth or none_text,
-            "sample_rate": sample_rate,
-        }
-        return format_string.format(**info)
+        os.makedirs(folder, exist_ok=True)
+
+        try:
+            embedded_cover_path, downloadable = await asyncio.gather(
+                self._download_cover(album.covers, folder),
+                self.client.get_downloadable(self.id, quality),
+            )
+        except NonStreamableError as e:
+            logger.error(
+                f"Error getting downloadable data for track {meta.tracknumber} [{self.id}]: {e}"
+            )
+            return None
+        return Track(
+            meta,
+            downloadable,
+            self.config,
+            folder,
+            embedded_cover_path,
+            self.db,
+            is_single=True,
+        )
+
+    def _format_folder(self, meta: AlbumMetadata) -> str:
+        c = self.config.session
+        parent = c.downloads.folder
+        formatter = c.filepaths.folder_format
+        if c.downloads.source_subdirectories:
+            parent = os.path.join(parent, self.client.source.capitalize())
+
+        return os.path.join(parent, meta.format_folder_path(formatter))
+
+    async def _download_cover(self, covers: Covers, folder: str) -> str | None:
+        embed_path, _ = await download_artwork(
+            self.client.session,
+            folder,
+            covers,
+            self.config.session.artwork,
+            for_playlist=False,
+        )
+        return embed_path
