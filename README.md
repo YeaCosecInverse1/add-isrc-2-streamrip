@@ -91,6 +91,10 @@ Batching reduces how long a resolved download URL waits before its download star
 - [Testing and remaining limitations](docs/TESTING.md)
 - [Change log](docs/CHANGELOG.md)
 
+## Verification status
+
+The repository owner has reported that the updated `rip file` workflow works with the installed Streamrip setup. This is user-reported manual verification, not an independently reproduced test or a formal automated test result.
+
 ## Important limitations
 
 - The header-count setting targets Python's `http.client` parser; it does not change every HTTP library's limit.
