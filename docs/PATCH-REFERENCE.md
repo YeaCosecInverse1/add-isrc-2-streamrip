@@ -1,55 +1,61 @@
 # Patch reference
 
-This page explains what differs from the original Streamrip source and why each file is kept in this repository. The code files are intended to be copied into a matching Streamrip installation.
+This page describes the behavior before and after each local source-file change.
 
 ## Summary
 
 | File | Original behavior | Modified behavior |
 | --- | --- | --- |
-| `__init__.py` | Uses Python's default `http.client` response-header count limit. | Sets `http.client._MAXHEADERS` to at least 1,000. |
-| `media/album.py` | Starts resolving the album's pending tracks together through one `asyncio.gather()`. | Resolves and downloads tracks in batches, waiting for one batch to finish before starting the next. |
-| `media/playlist.py` | Uses a fixed playlist chunk size of 20. | Reads `STREAMRIP_TRACK_BATCH_SIZE`, defaulting to 10. |
-| `media/track.py` | A `NonStreamableError` raised during the concurrent cover/downloadable work for a single track can escape from `PendingSingle.resolve()`. | Logs the track number, ID, and error, then returns `None` for that track. |
-| `metadata/track.py` | The filename formatter does not expose the additional keys used by the local filename template. | Exposes `isrc`, `bit_depth`, and `sample_rate`, alongside the existing formatter keys. |
+| `__init__.py` | Python's standard-library `http.client` uses its normal response-header count limit. | Raises `http.client._MAXHEADERS` to at least 1,000. |
+| `media/album.py` | All pending album tracks are resolved in a single `asyncio.gather()`. | Album tracks are resolved and downloaded in sequential batches. |
+| `media/playlist.py` | Playlist tracks use a fixed chunk size of 20. | Playlist batches use `STREAMRIP_TRACK_BATCH_SIZE`, default 10. |
+| `media/track.py` | A `NonStreamableError` during a single track's concurrent cover/downloadable lookup can escape the resolution method. | Logs the issue and returns `None` from that specific resolution path. |
+| `metadata/track.py` | Filename formatting does not expose the added metadata fields used by the local template. | Exposes `isrc`, `bit_depth`, and `sample_rate`, along with existing fields. |
+| `rip/main.py` | `Main.resolve()` gathers every pending item at once; the later download phase starts only after all pending items resolve. | Adds a sequential batch pipeline that resolves a group, downloads that group's media, then moves to the next group. |
+| `rip/cli.py` | The `file` command invokes `resolve()` for the entire list and then `rip()` once. | The `file` command invokes `resolve_and_rip_batched()`. |
 
-## 1. `__init__.py`: HTTP response headers
+## 1. `__init__.py`: HTTP headers
 
-Added near the beginning of package initialization:
+The added assignment is:
 
 ```python
-import http.client
 http.client._MAXHEADERS = max(http.client._MAXHEADERS, 1000)
 ```
 
-This targets the error `HTTPException('got more than 100 headers')`. Using `max()` means it will not reduce the limit if Python already has a higher value. The setting affects Python's standard-library `http.client` parser; it does not change every HTTP library's limits and does not fix unrelated HTTP errors.
+It targets `HTTPException('got more than 100 headers')` from Python's standard-library `http.client` parser. It does not modify `aiohttp`'s parser settings and does not fix unrelated service errors.
 
-## 2. `media/album.py`: bounded album batches
+## 2. `media/album.py` and `media/playlist.py`: album and playlist batches
 
-Album tracks are divided into groups using `STREAMRIP_TRACK_BATCH_SIZE`. The default is 10. Track resolve-and-download work remains concurrent inside a group, but the next group does not start until the current group finishes.
+Both use `STREAMRIP_TRACK_BATCH_SIZE`, defaulting to 10. Tracks within a batch still run concurrently; the next batch waits until the current batch's resolve-and-download work finishes.
 
-This reduces how long a track's download information waits before that track is downloaded. It does not guarantee that a signed URL cannot expire.
+This applies inside individual album/playlist workflows. It does not on its own batch a `rip file` list of thousands of individual track URLs.
 
-## 3. `media/playlist.py`: shared playlist batch size
+## 3. `rip/main.py` and `rip/cli.py`: batches for individual URLs in a file
 
-The previous fixed chunk size of 20 is replaced with `STREAMRIP_TRACK_BATCH_SIZE`, defaulting to 10. The value must be a positive integer; invalid or non-positive values fall back to 10 with a warning.
+This is the additional change for large `rip file` inputs. The original `Main.resolve()` constructs a coroutine for every pending URL and passes all of them to a single `asyncio.gather()`. For 7,500 individual track URLs, that starts resolution for the entire list before `Main.rip()` begins downloading.
 
-Set it for one command like this:
+The modified file-command path instead does this for each batch:
+
+1. Resolve at most `STREAMRIP_TRACK_BATCH_SIZE` pending items.
+2. Download the media returned by that batch.
+3. Clear that batch's media from the in-memory queue.
+4. Only then resolve the next batch.
+
+The default is 10. Set it to 25 for one command with:
 
 ```bash
 STREAMRIP_TRACK_BATCH_SIZE=25 rip -q 4 file /path/to/Qobuz.txt
 ```
 
-Without this variable, batches of 10 are used.
+This does not change the ordinary `resolve()` method used by other CLI operations; `rip file` is specifically routed through the new batched method. Because this method processes any media type found in the file, album and playlist URLs in the file are also handled batch by batch; their own track-level batching still applies inside them.
 
-## 4. `media/track.py`: a non-streamable single track
+## 4. `media/track.py`: non-streamable single-track resolution
 
-In `PendingSingle.resolve()`, the concurrent attempt to download artwork and retrieve downloadable track information is wrapped in a `NonStreamableError` handler. When that exception is raised, Streamrip logs the track number, track ID, and error and returns `None`, rather than letting this particular exception escape from the resolution method.
+During `PendingSingle.resolve()`, the concurrent cover download and request for downloadable track data are wrapped in a `NonStreamableError` handler. That error is logged, and the track returns `None` rather than escaping that path. It does not grant access to content the provider won't stream.
 
-This does not make a track streamable when the source does not provide it.
+## 5. `metadata/track.py`: filename keys
 
-## 5. `metadata/track.py`: filename template fields
-
-The filename formatter can use these fields:
+Available keys include:
 
 - `{id}`
 - `{title}`
@@ -69,8 +75,10 @@ Example:
 {title} - {artist} - ISRC-{isrc} - Qobuz-{id}
 ```
 
-If ISRC or bit depth is not available, the formatter uses `Unknown`. Sampling rates reported in hertz are formatted in kilohertz (for example, 96000 becomes `96`); values already below 1000 are kept as-is.
+Missing ISRC or bit-depth values use `Unknown`. Sampling rates given in hertz are formatted in kilohertz.
 
-## Compatibility
+## Compatibility and limitations
 
-The files were compared with corresponding source files on the upstream `dev` branch during this repository update. These links are not version-pinned, and the upstream branch may change. Keep a backup of the installed files and check the installed Streamrip version before copying these files over a different release.
+The tracked files are aligned with the Streamrip 2.2.0 installation reported during setup and were compared against upstream source on the `dev` branch. The upstream links are not version-pinned. Back up the installed package before copying files over another release.
+
+Batching reduces how long signed URLs wait before download begins, but cannot prevent every API failure or URL expiration.
