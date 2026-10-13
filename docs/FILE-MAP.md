@@ -1,8 +1,8 @@
 # File map
 
-The repository intentionally mirrors the contents of the installed `streamrip/` package. The repository root itself is **not** the package root on disk; it represents the files that live inside that package.
+The repository root mirrors the inside of the installed `streamrip/` package. Copy each tracked Python file to the same relative path inside that package.
 
-## Repository structure
+## Repository layout
 
 ```text
 .
@@ -14,6 +14,9 @@ The repository intentionally mirrors the contents of the installed `streamrip/` 
 │   └── track.py
 ├── metadata/
 │   └── track.py
+├── rip/
+│   ├── cli.py
+│   └── main.py
 └── docs/
     ├── CHANGELOG.md
     ├── FILE-MAP.md
@@ -23,26 +26,22 @@ The repository intentionally mirrors the contents of the installed `streamrip/` 
     └── UPSTREAM-FILES.md
 ```
 
-## How the paths map
+## Copy destination mapping
 
-If the installed package is:
+For an installation at `~/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/`:
 
-```text
-~/.local/share/uv/tools/streamrip/lib/python3.13/site-packages/streamrip/
-```
-
-then the copy destinations are:
-
-| Repository path | Installed path, relative to `site-packages/` | Purpose |
+| Repository file | Installed destination | Reason |
 | --- | --- | --- |
-| `__init__.py` | `streamrip/__init__.py` | HTTP response-header limit. |
-| `media/album.py` | `streamrip/media/album.py` | Album batching. |
-| `media/playlist.py` | `streamrip/media/playlist.py` | Playlist batching. |
-| `media/track.py` | `streamrip/media/track.py` | Non-streamable single-track handling. |
-| `metadata/track.py` | `streamrip/metadata/track.py` | Filename-template fields for ISRC, bit depth, and sample rate. |
+| `__init__.py` | `streamrip/__init__.py` | HTTP header-count limit. |
+| `media/album.py` | `streamrip/media/album.py` | Batch album track workflows. |
+| `media/playlist.py` | `streamrip/media/playlist.py` | Configurable playlist batching. |
+| `media/track.py` | `streamrip/media/track.py` | Non-streamable single-track failure handling. |
+| `metadata/track.py` | `streamrip/metadata/track.py` | ISRC and extra filename-template keys. |
+| `rip/main.py` | `streamrip/rip/main.py` | Batch pending-item resolution and download. |
+| `rip/cli.py` | `streamrip/rip/cli.py` | Routes `rip file` through the batched pipeline. |
 
-## Deliberately not included
+## What is not included
 
-The repository does not copy the whole Streamrip project. It does not include unchanged directories such as `client/`, `rip/`, or `utils/`, nor the installation's configuration, database, or authentication data. Leave those files in place.
+This is not a full Streamrip checkout. It does not contain unchanged directories such as `client/`, `utils/`, or other parts of `rip/`, nor does it contain the installation's config, database, or credentials. Leave those files in place.
 
-It also does not include an installation patcher. The intended workflow is to back up the installed package and copy the tracked files into their matching locations.
+The repository also does not include a patching script: the intended workflow is to copy these seven modified source files into a compatible Streamrip installation.
